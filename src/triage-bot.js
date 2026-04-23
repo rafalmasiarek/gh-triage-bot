@@ -569,7 +569,10 @@ async function run() {
     isTruthyString(core.getInput('dry-run')) ||
     isTruthyString(process.env.INPUT_DRY_RUN);
 
-  if (context.eventName === 'schedule') {
+  if (
+    context.eventName === 'schedule' ||
+    (context.eventName === 'workflow_dispatch' && runtime.ctx.item == null)
+  ) {
     await runInteractiveSchedule(runtime);
   } else {
     let matched = false;
