@@ -377,6 +377,8 @@ function evaluateConditionObject(cond, runtime) {
 async function applyLabels(action, runtime, itemNumber, currentLabels) {
   const owner = runtime.ctx.repo.owner;
   const repo = runtime.ctx.repo.repo;
+  const item = runtime.ctx.item;
+
   let targetLabels = [...currentLabels];
 
   if (action.add_labels) {
@@ -400,8 +402,11 @@ async function applyLabels(action, runtime, itemNumber, currentLabels) {
   const changed = JSON.stringify(targetLabels.sort()) !== JSON.stringify(uniq(currentLabels).sort());
   if (!changed) return false;
 
+  const nextLabels = targetLabels.map((name) => ({ name }));
+
   if (runtime.dryRun) {
     runtime.logs.push(`[dry-run] Would set labels on #${itemNumber}: ${targetLabels.join(', ')}`);
+    if (item) item.labels = nextLabels;
     return true;
   }
 
@@ -411,6 +416,9 @@ async function applyLabels(action, runtime, itemNumber, currentLabels) {
     issue_number: itemNumber,
     labels: targetLabels,
   });
+
+  if (item) item.labels = nextLabels;
+
   runtime.logs.push(`Labels set on #${itemNumber}: ${targetLabels.join(', ')}`);
   return true;
 }
