@@ -245,28 +245,132 @@ function getLabels(item) {
 
 function evaluateConditionObject(cond, runtime) {
   if (!cond || typeof cond !== 'object') return true;
+
   const item = runtime.ctx.item;
   const labels = getLabels(item);
   const body = item?.body || '';
   const title = item?.title || '';
   const type = runtime.ctx.itemType;
 
+  const assignees = (item?.assignees || []).map((a) => a.login);
+  const requestedReviewerUsers = (runtime.prState?.requestedReviewers || []).map((u) => u.login);
+  const requestedReviewerTeams = (runtime.prState?.requestedTeams || []).map((t) => `${t.org}/${t.slug}`);
+  const requestedReviewers = [...requestedReviewerUsers, ...requestedReviewerTeams];
+
+  const author = item?.user?.login || '';
+  const createdAt = item?.created_at ? new Date(item.created_at) : null;
+  const createdDays = createdAt
+    ? Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  const branchName = runtime.ctx.itemType === 'pull_request'
+    ? item?.head?.ref || ''
+    : '';
+
+  const baseBranch = runtime.ctx.itemType === 'pull_request'
+    ? item?.base?.ref || ''
+    : '';
+
+  const commentCount = Array.isArray(runtime.comments) ? runtime.comments.length : 0;
+
   if (cond.type && cond.type !== type) return false;
   if (cond.state && item?.state !== cond.state) return false;
-  if (cond.assignee_missing === true && (item?.assignees || []).length > 0) return false;
-  if (cond.assignee_present === true && (item?.assignees || []).length === 0) return false;
+
+  if (cond.assignee_missing === true && assignees.length > 0) return false;
+  if (cond.assignee_present === true && assignees.length === 0) return false;
+
+  if (cond.label_missing === true && labels.length > 0) return false;
+  if (cond.label_present === true && labels.length === 0) return false;
+
+  if (cond.label_count_eq !== undefined && labels.length !== Number(cond.label_count_eq)) return false;
+  if (cond.label_count_lt !== undefined && !(labels.length < Number(cond.label_count_lt))) return false;
+  if (cond.label_count_gt !== undefined && !(labels.length > Number(cond.label_count_gt))) return false;
+
   if (cond.labels_any && !labels.some((label) => cond.labels_any.includes(label))) return false;
   if (cond.labels_all && !cond.labels_all.every((label) => labels.includes(label))) return false;
   if (cond.labels_none && labels.some((label) => cond.labels_none.includes(label))) return false;
+
+  if (
+    cond.labels_match &&
+    !labels.some((label) =>
+      cond.labels_match.some((pattern) => minimatch(label, pattern, { dot: true }))
+    )
+  ) return false;
+
   if (cond.title_matches && !compileRegex(cond.title_matches).test(title)) return false;
   if (cond.body_matches && !compileRegex(cond.body_matches).test(body)) return false;
+
+  if (cond.body_missing === true && body.trim().length > 0) return false;
+  if (cond.body_missing === false && body.trim().length === 0) return false;
+
+  if (cond.body_length_lt !== undefined && !(body.trim().length < Number(cond.body_length_lt))) return false;
+  if (cond.body_length_gt !== undefined && !(body.trim().length > Number(cond.body_length_gt))) return false;
+
+  if (cond.title_length_lt !== undefined && !(title.trim().length < Number(cond.title_length_lt))) return false;
+  if (cond.title_length_gt !== undefined && !(title.trim().length > Number(cond.title_length_gt))) return false;
+
   if (cond.actor_not && runtime.ctx.actor === stripAt(cond.actor_not)) return false;
-  if (cond.draft !== undefined && Boolean(runtime.ctx.item?.draft) !== Boolean(cond.draft)) return false;
+  if (cond.actor_is && runtime.ctx.actor !== stripAt(cond.actor_is)) return false;
+
+  if (cond.author_is && author !== stripAt(cond.author_is)) return false;
+  if (cond.author_not && author === stripAt(cond.author_not)) return false;
+
+  if (cond.assignee_is && !assignees.includes(stripAt(cond.assignee_is))) return false;
+  if (
+    cond.assignee_is_any &&
+    !toArray(cond.assignee_is_any).some((assignee) => assignees.includes(stripAt(assignee)))
+  ) return false;
+
+  if (cond.reviewer_missing === true && requestedReviewers.length > 0) return false;
+  if (cond.reviewer_present === true && requestedReviewers.length === 0) return false;
+
+  if (cond.reviewer_is && !requestedReviewers.includes(stripAt(cond.reviewer_is))) return false;
+  if (
+    cond.reviewer_is_any &&
+    !toArray(cond.reviewer_is_any).some((reviewer) => requestedReviewers.includes(stripAt(reviewer)))
+  ) return false;
+
+  if (cond.draft !== undefined && Boolean(item?.draft) !== Boolean(cond.draft)) return false;
+
+  if (
+    cond.draft_or_wip !== undefined &&
+    Boolean(cond.draft_or_wip) !== (
+      Boolean(item?.draft) ||
+      /\bWIP\b/i.test(title)
+    )
+  ) return false;
+
   if (cond.days_inactive_gt !== undefined && !(runtime.ageDays > Number(cond.days_inactive_gt))) return false;
+  if (cond.created_days_gt !== undefined && !(createdDays > Number(cond.created_days_gt))) return false;
+  if (cond.created_days_lt !== undefined && !(createdDays < Number(cond.created_days_lt))) return false;
+
+  if (cond.comment_count_eq !== undefined && commentCount !== Number(cond.comment_count_eq)) return false;
+  if (cond.comment_count_gt !== undefined && !(commentCount > Number(cond.comment_count_gt))) return false;
+  if (cond.comment_count_lt !== undefined && !(commentCount < Number(cond.comment_count_lt))) return false;
+
+  if (cond.branch_name_matches && !compileRegex(cond.branch_name_matches).test(branchName)) return false;
+
+  if (cond.base_branch_is && baseBranch !== cond.base_branch_is) return false;
+  if (
+    cond.base_branch_is_any &&
+    !toArray(cond.base_branch_is_any).includes(baseBranch)
+  ) return false;
+
   if (cond.changed_files_any && !matchAnyPattern(runtime.changedFiles, cond.changed_files_any)) return false;
-  if (cond.changed_files_all && !cond.changed_files_all.every((pattern) => runtime.changedFiles.some((file) => minimatch(file, pattern, { dot: true })))) return false;
+  if (
+    cond.changed_files_all &&
+    !cond.changed_files_all.every((pattern) =>
+      runtime.changedFiles.some((file) => minimatch(file, pattern, { dot: true }))
+    )
+  ) return false;
   if (cond.changed_files_none && matchAnyPattern(runtime.changedFiles, cond.changed_files_none)) return false;
+
+  if (cond.changed_files_count_gt !== undefined && !(runtime.changedFiles.length > Number(cond.changed_files_count_gt))) return false;
+  if (cond.changed_files_count_lt !== undefined && !(runtime.changedFiles.length < Number(cond.changed_files_count_lt))) return false;
+  if (cond.changed_files_count_eq !== undefined && runtime.changedFiles.length !== Number(cond.changed_files_count_eq)) return false;
+
   if (cond.codeowners_match === true && runtime.codeownersOwners.length === 0) return false;
+
   return true;
 }
 
