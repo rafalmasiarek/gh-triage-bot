@@ -43121,7 +43121,10 @@ async function run() {
     isTruthyString(getInput('dry-run')) ||
     isTruthyString(external_node_process_namespaceObject.env.INPUT_DRY_RUN);
 
-  if (github_context.eventName === 'schedule') {
+  if (
+    github_context.eventName === 'schedule' ||
+    (github_context.eventName === 'workflow_dispatch' && runtime.ctx.item == null)
+  ) {
     await runInteractiveSchedule(runtime);
   } else {
     let matched = false;
