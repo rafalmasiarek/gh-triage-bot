@@ -1,57 +1,71 @@
 name: Release on Merge
 
 on:
-    pull_request:
-        types: [ closed ]
-        branches: [ main ]
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 permissions:
-    contents: write
+  contents: write
 
 jobs:
-    tag-and-release:
-        if: >
-            github.event.pull_request.merged == true &&
-            startsWith(github.event.pull_request.title, 'chore(release): v')
-        runs-on: ubuntu-latest
+  release:
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'chore(release): v')
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout merged main
-              uses: actions/checkout@v6
-              with:
-                  ref: main
-                  fetch-depth: 0
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
-            - name: Read version from package.json
-              id: ver
-              run: |
-                  ver=$(node -p "require('./package.json').version")
-                  if [ -z "$ver" ] || [ "$ver" = "undefined" ]; then
-                    echo "Failed to read version from package.json"
-                    exit 1
-                  fi
-                  echo "version=$ver" >> "$GITHUB_OUTPUT"
-                  echo "Version detected: $ver"
+      - name: Read version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-            - name: Verify action files
-              run: |
-                  test -f action.yml
-                  test -f dist/index.js
+      - name: Verify required files
+        run: |
+          test -f action.yml
+          test -f dist/index.js
 
-            - name: Create git tag
-              run: |
-                  ver="${{ steps.ver.outputs.version }}"
-                  git tag "v${ver}"
-                  git push origin "v${ver}"
+      - name: Create and push version tags
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            - name: Create GitHub Release
-              uses: softprops/action-gh-release@v3
-              with:
-                  tag_name: v${{ steps.ver.outputs.version }}
-                  name: v${{ steps.ver.outputs.version }}
-                  files: |
-                      action.yml
-                      dist/index.js
-                      README.md
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PATCH_TAG="v${VERSION}"
+          MAJOR_MINOR_TAG="v$(echo "$VERSION" | cut -d. -f1,2)"
+          MAJOR_TAG="v$(echo "$VERSION" | cut -d. -f1)"
+
+          if git rev-parse "$PATCH_TAG" >/dev/null 2>&1; then
+            echo "Tag $PATCH_TAG already exists"
+            exit 1
+          fi
+
+          git tag "$PATCH_TAG"
+          git tag -f "$MAJOR_MINOR_TAG"
+          git tag -f "$MAJOR_TAG"
+
+          git push origin "$PATCH_TAG"
+          git push origin "refs/tags/$MAJOR_MINOR_TAG" --force
+          git push origin "refs/tags/$MAJOR_TAG" --force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            action.yml
+            dist/index.js
+            package.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
