@@ -71,5 +71,4 @@ jobs:
                     --base main \
                     --head "release/v${{ inputs.version }}" \
                     --title "chore(release): v${{ inputs.version }}" \
-                    --body "This PR prepares release v${{ inputs.version }} for GitHub Action." \
-                    --label "release"
+                    --body "This PR prepares release v${{ inputs.version }} for GitHub Action."
