@@ -1,0 +1,16 @@
+name: GitHub Triage Bot
+description: Config-driven triage bot for issues and pull requests
+
+inputs:
+  config-path:
+    description: Path to triage config file
+    required: false
+    default: .github/triage-rules.yml
+  dry-run:
+    description: Run without write operations
+    required: false
+    default: "false"
+
+runs:
+  using: node20
+  main: dist/index.js

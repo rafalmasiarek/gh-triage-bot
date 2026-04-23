@@ -1,0 +1,57 @@
+name: Release on Merge
+
+on:
+    pull_request:
+        types: [ closed ]
+        branches: [ main ]
+
+permissions:
+    contents: write
+
+jobs:
+    tag-and-release:
+        if: >
+            github.event.pull_request.merged == true &&
+            startsWith(github.event.pull_request.title, 'chore(release): v')
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout merged main
+              uses: actions/checkout@v4
+              with:
+                  ref: main
+                  fetch-depth: 0
+
+            - name: Read version from package.json
+              id: ver
+              run: |
+                  ver=$(node -p "require('./package.json').version")
+                  if [ -z "$ver" ] || [ "$ver" = "undefined" ]; then
+                    echo "Failed to read version from package.json"
+                    exit 1
+                  fi
+                  echo "version=$ver" >> "$GITHUB_OUTPUT"
+                  echo "Version detected: $ver"
+
+            - name: Verify action files
+              run: |
+                  test -f action.yml
+                  test -f dist/index.js
+
+            - name: Create git tag
+              run: |
+                  ver="${{ steps.ver.outputs.version }}"
+                  git tag "v${ver}"
+                  git push origin "v${ver}"
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ steps.ver.outputs.version }}
+                  name: v${{ steps.ver.outputs.version }}
+                  files: |
+                      action.yml
+                      dist/index.js
+                      README.md
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

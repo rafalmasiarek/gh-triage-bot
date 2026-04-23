@@ -1,0 +1,75 @@
+name: Prepare Release PR
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Semver without v, e.g. 1.0.0"
+                required: true
+                type: string
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    prepare-pr:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout main
+              uses: actions/checkout@v4
+              with:
+                  ref: main
+                  fetch-depth: 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+
+            - name: Update package.json version
+              run: |
+                  ver="${{ inputs.version }}"
+                  node -e "const fs=require('fs'); const p=require('./package.json'); p.version='${{ inputs.version }}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build dist
+              run: npm run build
+
+            - name: Verify build output
+              run: |
+                  test -f action.yml
+                  test -f dist/index.js
+
+            - name: Commit release branch
+              run: |
+                  ver="${{ inputs.version }}"
+                  branch="release/v${ver}"
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+                  git checkout -b "$branch"
+                  git add package.json action.yml dist src README.md .github/workflows || true
+                  git commit -m "chore(release): v${ver}" || echo "No changes to commit"
+                  git push origin "$branch" --force
+
+            - name: Open Pull Request
+              uses: peter-evans/create-pull-request@v6
+              with:
+                  branch: release/v${{ inputs.version }}
+                  base: main
+                  title: "chore(release): v${{ inputs.version }}"
+                  body: |
+                      This PR prepares release **v${{ inputs.version }}**.
+
+                      Included:
+                      - bumps `package.json`
+                      - rebuilds `dist/index.js`
+                      - prepares the repository for tagging a GitHub Action release
+                  labels: release
+                  draft: false

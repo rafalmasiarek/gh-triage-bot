@@ -1,0 +1,25 @@
+version: 1
+
+defaults:
+  dry_run: false
+  inactivity_days: 30
+  comment_marker_prefix: triage-bot
+
+aliases:
+  repo_owner:
+    type: repo_owner
+
+rules: []
+
+fallback:
+  issue:
+    assign: [ "@repo_owner" ]
+    comment_once_key: fallback-issue
+    comment: |
+      Assigned to @{assignees} by default.
+
+  pull_request:
+    request_reviewers: [ "@repo_owner" ]
+    comment_once_key: fallback-pr
+    comment: |
+      Requested default reviewer(s): @{requested_reviewers}.
