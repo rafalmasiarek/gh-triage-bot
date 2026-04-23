@@ -424,6 +424,8 @@ async function applyComment(action, runtime, itemNumber) {
 
 async function executeActions(action, runtime) {
   const item = runtime.ctx.item;
+  if (!item) return false;
+
   const itemNumber = item.number;
   let changed = false;
 
@@ -485,7 +487,6 @@ async function buildRuntime(config, ctx, octokit) {
 }
 
 async function runInteractiveSchedule(runtime) {
-  const sinceDays = Number(runtime.config.defaults?.inactivity_days || 30);
   const items = [];
 
   const issues = await runtime.octokit.paginate(runtime.octokit.rest.issues.listForRepo, {
@@ -499,11 +500,14 @@ async function runInteractiveSchedule(runtime) {
     const itemType = item.pull_request ? 'pull_request' : 'issue';
     const updatedAt = new Date(item.updated_at);
     const ageDays = Math.floor((Date.now() - updatedAt.getTime()) / (1000 * 60 * 60 * 24));
-    if (ageDays <= sinceDays) continue;
     items.push({ item, itemType, ageDays });
   }
 
+  runtime.logs.push(`Scan mode: found ${items.length} open items.`);
+
   for (const candidate of items) {
+    runtime.logs.push(`Scanning #${candidate.item.number} (${candidate.itemType}), ageDays=${candidate.ageDays}`);
+
     const candidateCtx = {
       eventName: runtime.ctx.eventName,
       payload: runtime.ctx.payload,
@@ -512,21 +516,34 @@ async function runInteractiveSchedule(runtime) {
       item: candidate.item,
       itemType: candidate.itemType,
     };
+
     const changedFiles = candidate.itemType === 'pull_request'
       ? await listPullRequestFiles(runtime.octokit, runtime.ctx.repo, candidate.item.number)
       : [];
+
     const comments = await listIssueComments(runtime.octokit, runtime.ctx.repo, candidate.item.number);
+
     const prState = candidate.itemType === 'pull_request'
       ? await getRequestedReviewers(runtime.octokit, runtime.ctx.repo, candidate.item.number)
       : { users: [], teams: [] };
-    const codeownersEntries = runtime.config.codeowners?.enabled === false ? [] : parseCodeownersFile(path.resolve(runtime.config.codeowners?.path || '.github/CODEOWNERS'));
-    const codeownersOwners = candidate.itemType === 'pull_request' ? matchCodeowners(codeownersEntries, changedFiles) : [];
+
+    const codeownersEntries = runtime.config.codeowners?.enabled === false
+      ? []
+      : parseCodeownersFile(path.resolve(runtime.config.codeowners?.path || '.github/CODEOWNERS'));
+
+    const codeownersOwners = candidate.itemType === 'pull_request'
+      ? matchCodeowners(codeownersEntries, changedFiles)
+      : [];
+
     const candidateRuntime = {
       ...runtime,
       ctx: candidateCtx,
       changedFiles,
       comments,
-      prState: { requestedReviewers: prState.users || [], requestedTeams: prState.teams || [] },
+      prState: {
+        requestedReviewers: prState.users || [],
+        requestedTeams: prState.teams || [],
+      },
       codeownersOwners,
       ageDays: candidate.ageDays,
       logs: runtime.logs,
@@ -537,6 +554,7 @@ async function runInteractiveSchedule(runtime) {
       if (rule.enabled === false) continue;
       if (!toArray(rule.on).includes('schedule.daily')) continue;
       if (!evaluateConditionObject(rule.if, candidateRuntime)) continue;
+
       matched = true;
       const changed = await executeActions(rule.then || {}, candidateRuntime);
       runtime.logs.push(`Schedule rule '${rule.name}' matched #${candidate.item.number} (${candidate.itemType}), changed=${changed}`);
