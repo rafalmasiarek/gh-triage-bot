@@ -42564,10 +42564,10 @@ const BUILTIN_ALIAS_FACTORIES = {
   repo_owner: (ctx) => [ctx.repo.owner],
   repo_name: (ctx) => [ctx.repo.repo],
   repo_full_name: (ctx) => [`${ctx.repo.owner}/${ctx.repo.repo}`],
-  issue_author: (ctx) => ctx.item?.user?.login ? [ctx.item.user.login] : [],
-  pr_author: (ctx) => ctx.item?.user?.login ? [ctx.item.user.login] : [],
-  author: (ctx) => ctx.item?.user?.login ? [ctx.item.user.login] : [],
-  actor: (ctx) => ctx.actor ? [ctx.actor] : [],
+  issue_author: (ctx) => (ctx.item?.user?.login ? [ctx.item.user.login] : []),
+  pr_author: (ctx) => (ctx.item?.user?.login ? [ctx.item.user.login] : []),
+  author: (ctx) => (ctx.item?.user?.login ? [ctx.item.user.login] : []),
+  actor: (ctx) => (ctx.actor ? [ctx.actor] : []),
   assignees: (ctx) => (ctx.item?.assignees || []).map((a) => a.login),
   requested_reviewers: (ctx) => [
     ...((ctx.prState?.requestedReviewers || []).map((u) => u.login)),
@@ -42662,7 +42662,11 @@ function resolveAliasDefinition(def, runtime, purpose = 'generic') {
   if (!def || typeof def !== 'object') return [];
   switch (def.type) {
     case 'users':
-      return uniq((def.users || []).flatMap((u) => resolveAliasToken(u.startsWith('@') ? u : `@${u}`, runtime, purpose)).map(stripAt));
+      return uniq(
+        (def.users || [])
+          .flatMap((u) => resolveAliasToken(u.startsWith('@') ? u : `@${u}`, runtime, purpose))
+          .map(stripAt),
+      );
     case 'repo_owner':
       return BUILTIN_ALIAS_FACTORIES.repo_owner(runtime.ctx);
     case 'issue_author':
@@ -42757,7 +42761,7 @@ function matchCodeowners(entries, files) {
 }
 
 function buildRenderContext(runtime) {
-  const labels = (runtime.ctx.item?.labels || []).map((l) => typeof l === 'string' ? l : l.name).filter(Boolean);
+  const labels = (runtime.ctx.item?.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).filter(Boolean);
   return {
     repo_owner: runtime.ctx.repo.owner,
     repo_name: runtime.ctx.repo.repo,
@@ -42788,7 +42792,7 @@ function buildMarker(prefix, key) {
 }
 
 function getLabels(item) {
-  return (item?.labels || []).map((l) => typeof l === 'string' ? l : l.name).filter(Boolean);
+  return (item?.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).filter(Boolean);
 }
 
 function evaluateConditionObject(cond, runtime) {
@@ -42993,9 +42997,13 @@ function validateConfig(config) {
 async function buildRuntime(config, ctx, octokit) {
   const item = getTrackedItem(ctx);
   const itemType = getItemType(ctx);
-  const changedFiles = itemType === 'pull_request' ? await listPullRequestFiles(octokit, ctx.repo, item.number) : [];
-  const comments = item ? await listIssueComments(octokit, ctx.repo, item.number) : [];
-  const prState = itemType === 'pull_request'
+  const changedFiles = itemType === 'pull_request' && item
+    ? await listPullRequestFiles(octokit, ctx.repo, item.number)
+    : [];
+  const comments = item
+    ? await listIssueComments(octokit, ctx.repo, item.number)
+    : [];
+  const prState = itemType === 'pull_request' && item
     ? await getRequestedReviewers(octokit, ctx.repo, item.number)
     : { requestedReviewers: [], requestedTeams: [] };
   const codeownersPath = config.codeowners?.path ? external_node_path_namespaceObject.resolve(config.codeowners.path) : external_node_path_namespaceObject.resolve('.github/CODEOWNERS');
@@ -43007,10 +43015,12 @@ async function buildRuntime(config, ctx, octokit) {
   return {
     config,
     ctx: {
-      ...ctx,
+      eventName: ctx.eventName,
+      payload: ctx.payload,
+      actor: ctx.actor,
+      repo: ctx.repo,
       item,
       itemType,
-      actor: ctx.actor,
     },
     octokit,
     changedFiles,
@@ -43047,11 +43057,12 @@ async function runInteractiveSchedule(runtime) {
 
   for (const candidate of items) {
     const candidateCtx = {
-      ...runtime.ctx,
+      eventName: runtime.ctx.eventName,
       payload: runtime.ctx.payload,
+      actor: runtime.ctx.actor,
+      repo: runtime.ctx.repo,
       item: candidate.item,
       itemType: candidate.itemType,
-      actor: runtime.ctx.actor,
     };
     const changedFiles = candidate.itemType === 'pull_request'
       ? await listPullRequestFiles(runtime.octokit, runtime.ctx.repo, candidate.item.number)
@@ -43123,7 +43134,7 @@ async function run() {
 
   if (
     github_context.eventName === 'schedule' ||
-    (github_context.eventName === 'workflow_dispatch' && runtime.ctx.item == null)
+    (github_context.eventName === 'workflow_dispatch' && runtime.ctx.item === null)
   ) {
     await runInteractiveSchedule(runtime);
   } else {
