@@ -59,7 +59,7 @@ jobs:
                   git push origin "$branch" --force
 
             - name: Open Pull Request
-              uses: peter-evans/create-pull-request@v6
+              uses: peter-evans/create-pull-request@v8
               with:
                   branch: release/v${{ inputs.version }}
                   base: main
