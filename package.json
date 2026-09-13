@@ -16,6 +16,6 @@
     "minimatch": "^10.2.6"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.3"
+    "@vercel/ncc": "^0.45.0"
   }
 }
